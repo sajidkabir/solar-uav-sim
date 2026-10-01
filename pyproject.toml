@@ -15,6 +15,17 @@ keywords = ["uav", "solar", "aerospace", "endurance", "simulation"]
 
 [project.urls]
 Homepage = "https://github.com/sajidkabir/solar-uav-sim"
+Repository = "https://github.com/sajidkabir/solar-uav-sim"
+Issues = "https://github.com/sajidkabir/solar-uav-sim/issues"
+Changelog = "https://github.com/sajidkabir/solar-uav-sim/blob/main/CHANGELOG.md"
+
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Physics",
+]
 
 [project.scripts]
 solar-uav-sim = "solar_uav_sim.cli:main"

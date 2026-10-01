@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "solar-uav-sim"
+version = "0.1.0"
+description = "Solar-powered UAV endurance simulator: energy-balance modeling and charge-consumption parity analysis"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Sajid Kabir Saji" }]
+requires-python = ">=3.10"
+dependencies = ["numpy", "matplotlib"]
+keywords = ["uav", "solar", "aerospace", "endurance", "simulation"]
+
+[project.urls]
+Homepage = "https://github.com/sajidkabir/solar-uav-sim"
+
+[project.scripts]
+solar-uav-sim = "solar_uav_sim.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/solar_uav_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

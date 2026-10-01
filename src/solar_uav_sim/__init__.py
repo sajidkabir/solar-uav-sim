@@ -7,7 +7,7 @@ from .propulsion import MultirotorSpec, hover_power_w, climb_power_w
 from .sun import clear_sky_irradiance_w_m2, solar_altitude_deg, daylight_hours
 from .atmosphere import air_density_kg_m3
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "MissionConfig",

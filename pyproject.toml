@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "solar-uav-sim"
-version = "0.1.0"
+version = "1.0.0"
 description = "Solar-powered UAV endurance simulator: energy-balance modeling and charge-consumption parity analysis"
 readme = "README.md"
 license = { text = "MIT" }

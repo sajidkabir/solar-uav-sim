@@ -28,15 +28,26 @@ against first principles.
   depth-of-discharge floor. State of charge is integrated step by step and
   never silently goes negative or overfull.
 - **Propulsion model**: hover power from actuator-disk momentum theory with
-  a figure of merit, ISA air density at altitude, plus a climb-power term.
+  a rotor figure of merit and a motor/controller drivetrain efficiency
+  (calibrated against the DJI Mavic 3 spec point), ISA air density at
+  altitude, plus a climb-power term.
+- **Forward-flight model**: induced power that falls with speed (Glauert),
+  profile power growing with advance ratio, and parasite drag growing
+  with V^3, giving the classic U-shaped power curve and a
+  minimum-power cruise speed. Forward power at zero speed is exactly
+  the hover power, so validated hover numbers are unchanged.
+- **Mission pricing**: timed hover, cruise, and climb segments summed to
+  total energy, distance, and average power, so a real mission can be
+  priced instead of assuming an all-day hover.
 - **Day simulation**: a configurable mission (latitude, day of year,
   altitude, panel, battery, aircraft) integrated over 24 hours, returning
   energy in, energy out, net balance, and the state-of-charge trace.
 - **Parity solver**: bisection on an irradiance scale factor that finds the
-  exact point where daily harvest equals daily consumption, or reports that
-  parity lies outside the searched range.
-- **CLI**: `simulate`, `parity`, and `plot` subcommands, plus a Python API
-  for embedding the models in your own design studies.
+  exact point where daily harvest equals daily consumption; the search
+  bracket grows automatically if break-even lies beyond it.
+- **CLI**: `simulate`, `parity`, `plot`, `cruise`, `power-curve`, and
+  `mission` subcommands, plus a Python API for embedding the models in
+  your own design studies.
 
 ## Installation
 
@@ -67,13 +78,11 @@ solar-uav-sim simulate --lat 23.8 --day 172 --panel-area 1.0 --battery-wh 500 --
 ```
 
 ```text
-Solar UAV day simulation
-  Location:        lat 23.81, day 172
-  Energy in:       1567.3 Wh
-  Energy out:      6612.8 Wh
-  Net:             -5045.5 Wh
-  Min SoC:         100.0 Wh
-  End SoC:         100.0 Wh
+Energy in:     1567.3 Wh
+Energy out:   11924.7 Wh
+Net:         -10357.4 Wh
+Min SoC:        100.0 Wh
+End SoC:        100.0 Wh
 ```
 
 Ask what it would take to break even:
@@ -86,6 +95,14 @@ Plot the state-of-charge curve to a PNG:
 
 ```bash
 solar-uav-sim plot --output soc.png
+```
+
+Price forward flight and a mixed mission:
+
+```bash
+solar-uav-sim cruise --speed 15
+solar-uav-sim power-curve --max-speed 30 --step 5
+solar-uav-sim mission --segments examples/mission.json
 ```
 
 ### Python API
@@ -118,7 +135,8 @@ print("Parity factor:", parity_scale_factor(config))
 | `atmosphere.py` | ISA troposphere density |
 | `panel.py` | Photovoltaic power from irradiance |
 | `battery.py` | Charge/discharge bookkeeping with efficiency and DoD limits |
-| `propulsion.py` | Hover and climb power from momentum theory |
+| `propulsion.py` | Hover, climb, and forward-flight power from momentum theory |
+| `mission.py` | Segment-based mission energy (hover, cruise, climb) |
 | `simulation.py` | The 24-hour integration loop and the parity solver |
 | `cli.py` | Command-line interface |
 
@@ -126,15 +144,20 @@ Key relations:
 
 - Solar declination (Cooper): delta = 23.45 deg * sin(360 * (284 + N) / 365)
 - Hover induced velocity: v_i = sqrt(T / (2 * rho * A))
-- Hover power: P = T * v_i / figure_of_merit, with T = m * g for the full
-  rotor system
+- Hover power: P = T * v_i / (figure_of_merit * drivetrain_efficiency),
+  with T = m * g for the full rotor system; defaults calibrated so the
+  DJI Mavic 3 spec point (0.895 kg, 40 min hover, 77 Wh) reproduces 115.5 W
+- Forward induced velocity (Glauert): v_i = v_h^2 / sqrt(V^2 + v_i^2)
+- Forward power: induced (falling with V) + profile increment
+  (proportional to 3 mu^2 above hover, mu = V / tip speed) + parasite
+  (0.5 * rho * CdA * V^3 / drivetrain_efficiency) + avionics
 - Daily balance: net = harvested solar energy - propulsion energy over 24 h,
   with the battery absorbing surpluses and covering deficits down to its
   depth-of-discharge floor
 
 ## Validation and sanity checks
 
-The test suite (15 tests) checks the physics, not just the plumbing:
+The test suite (28 tests) checks the physics, not just the plumbing:
 
 - Solar altitude peaks at local noon; irradiance is zero at night.
 - On the solstice, daylight exceeds 13 hours at latitude 23.8.
@@ -143,11 +166,20 @@ The test suite (15 tests) checks the physics, not just the plumbing:
 - A light platform (0.5 kg, 2 m2 of panel) ends the day energy-positive,
   while a heavy quad on a small panel does not, and the parity solver
   brackets the break-even point between them.
+- Forward power at zero speed equals hover power exactly; induced
+  velocity falls with speed toward the v_h^2 / V asymptote; the power
+  curve is U-shaped (cruise cheaper than hover, then drag-dominated);
+  a mixed hover/cruise/climb mission prices to its segment sum.
 
 ## Honest limitations
 
 - Clear-sky irradiance only: no clouds, haze, or panel soiling yet.
-- Hover-only propulsion load: no forward-flight or wind model yet.
+- The 24-hour day simulation still assumes a hover load; mixed
+  hover/cruise/climb flights are priced with the mission tool, not
+  inside the day loop. No wind model yet.
+- Forward-flight drag area, tip speed, solidity, and profile drag
+  defaults are typical small-quad estimates, not calibrated to a
+  specific airframe.
 - Panels are assumed horizontal and fixed to the airframe.
 - The battery model has no C-rate or thermal limits.
 
@@ -157,9 +189,9 @@ These are deliberate. Each one is a clean extension point, listed below.
 
 Ideas are welcome. Roughly in order of expected value:
 
-- **Forward-flight power model** (induced, profile, and parasite terms) so
-  missions can mix hover, cruise, and climb segments.
-- **Mission profiles**: timed segments instead of a single all-day hover.
+- **Mission profiles in the day loop**: timed segments inside the 24-hour
+  simulation instead of a single all-day hover (segment pricing exists
+  as a standalone tool since v1.1.0).
 - **Weather derating**: cloud cover factors and measured irradiance data
   (for example from NASA POWER) in place of the clear-sky model.
 - **Tilted and tracking panels**: panel normal vector vs sun vector.

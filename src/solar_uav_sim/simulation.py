@@ -101,7 +101,18 @@ def parity_scale_factor(
 
     A factor of 1.0 means the site's clear-sky day as modeled; 1.2 means 20%
     more solar resource (or equivalently 20% more panel) is needed to break even.
+
+    The search bracket is grown automatically: if the break-even point lies
+    beyond the initial ``hi``, the bound is doubled until it brackets the
+    root (up to a sanity cap), so the solver never silently saturates at
+    the top of the range.
     """
+    # Grow the upper bound until it brackets the root (2026-10-09: previously
+    # the fixed hi=3.0 silently saturated, e.g. printing 3.000 for a platform
+    # whose true parity point sits at 4.22).
+    max_hi = 1e4
+    while hi < max_hi and run_day(config, panel, battery_spec, propulsion, hi).net_energy_wh < 0.0:
+        hi *= 2.0
     for _ in range(iterations):
         mid = (lo + hi) / 2.0
         net = run_day(config, panel, battery_spec, propulsion, mid).net_energy_wh

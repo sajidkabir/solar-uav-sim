@@ -5,9 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 
+from .atmosphere import air_density_kg_m3
 from .battery import BatterySpec
+from .mission import run_mission, segment_from_dict
 from .panel import PanelSpec
-from .propulsion import MultirotorSpec
+from .propulsion import (
+    MultirotorSpec,
+    best_cruise_speed_m_s,
+    forward_power_breakdown_w,
+    forward_power_w,
+)
 from .simulation import MissionConfig, parity_scale_factor, run_day
 
 
@@ -39,6 +46,51 @@ def cmd_parity(args: argparse.Namespace) -> int:
         print("The configuration sustains itself on a clear-sky day at this site.")
     else:
         print(f"Needs {100.0 * (factor - 1.0):.1f}% more solar resource (or panel area) to break even.")
+    return 0
+
+
+def cmd_cruise(args: argparse.Namespace) -> int:
+    _, _, propulsion = _default_specs()
+    rho = air_density_kg_m3(args.altitude)
+    breakdown = forward_power_breakdown_w(propulsion, rho, args.speed)
+    print(f"Forward flight at {args.speed:.1f} m/s (altitude {args.altitude:.0f} m)")
+    print(f"  Induced:           {breakdown['induced']:8.1f} W")
+    print(f"  Profile increment: {breakdown['profile_increment']:8.1f} W")
+    print(f"  Parasite:          {breakdown['parasite']:8.1f} W")
+    print(f"  Avionics:          {breakdown['avionics']:8.1f} W")
+    print(f"  Total:             {breakdown['total']:8.1f} W")
+    return 0
+
+
+def cmd_power_curve(args: argparse.Namespace) -> int:
+    _, _, propulsion = _default_specs()
+    rho = air_density_kg_m3(args.altitude)
+    print("Speed (m/s)  Power (W)")
+    speed = 0.0
+    while speed <= args.max_speed + 1e-9:
+        print(f"{speed:8.1f}  {forward_power_w(propulsion, rho, speed):9.1f}")
+        speed += args.step
+    best_speed, best_power = best_cruise_speed_m_s(propulsion, rho, args.max_speed)
+    print(f"Minimum-power cruise: {best_speed:.2f} m/s at {best_power:.1f} W")
+    return 0
+
+
+def cmd_mission(args: argparse.Namespace) -> int:
+    with open(args.segments, encoding="utf-8") as fh:
+        data = json.load(fh)
+    segments = [segment_from_dict(item) for item in data]
+    _, battery, propulsion = _default_specs()
+    rho = air_density_kg_m3(args.altitude)
+    result = run_mission(propulsion, rho, segments)
+    for seg in result.segments:
+        print(
+            f"{seg.kind:6s} {seg.duration_s:7.0f} s  {seg.power_w:7.1f} W  "
+            f"{seg.energy_wh:7.1f} Wh  {seg.distance_m:8.0f} m"
+        )
+    print(f"Total: {result.total_time_s:.0f} s, {result.total_distance_m:.0f} m, "
+          f"{result.total_energy_wh:.1f} Wh, avg {result.average_power_w:.1f} W")
+    print(f"Share of {battery.capacity_wh:.0f} Wh battery: "
+          f"{100.0 * result.total_energy_wh / battery.capacity_wh:.1f}%")
     return 0
 
 
@@ -76,6 +128,13 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("simulate", help="Run a 24-hour energy-balance simulation")
     sub.add_parser("parity", help="Find the irradiance factor needed to break even")
+    cruise = sub.add_parser("cruise", help="Forward-flight power at one speed")
+    cruise.add_argument("--speed", type=float, default=12.0, help="Forward speed in m/s")
+    curve = sub.add_parser("power-curve", help="Power vs forward speed table")
+    curve.add_argument("--max-speed", type=float, default=30.0)
+    curve.add_argument("--step", type=float, default=2.0)
+    mission = sub.add_parser("mission", help="Price a JSON segment list")
+    mission.add_argument("--segments", required=True, help="JSON file with segment list")
     plot = sub.add_parser("plot", help="Save power and battery plots to a PNG file")
     plot.add_argument("--output", default="day.png")
 
@@ -84,6 +143,12 @@ def main() -> None:
         raise SystemExit(cmd_simulate(args))
     if args.command == "parity":
         raise SystemExit(cmd_parity(args))
+    if args.command == "cruise":
+        raise SystemExit(cmd_cruise(args))
+    if args.command == "power-curve":
+        raise SystemExit(cmd_power_curve(args))
+    if args.command == "mission":
+        raise SystemExit(cmd_mission(args))
     if args.command == "plot":
         raise SystemExit(cmd_plot(args))
 

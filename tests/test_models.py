@@ -14,10 +14,11 @@ def test_panel_power_scales_with_area_and_efficiency():
 
 
 def test_hover_power_in_plausible_band():
-    # 2 kg quad, 10-inch props: momentum theory gives about 180 W electrical.
+    # 2 kg quad, 10-inch props: with the calibrated drivetrain efficiency
+    # (2026-10-09), momentum theory gives about 276 W electrical.
     spec = MultirotorSpec(mass_kg=2.0, num_rotors=4, prop_diameter_m=0.254, figure_of_merit=0.7)
     power = hover_power_w(spec, air_density_kg_m3(0.0))
-    assert 150.0 < power < 220.0
+    assert 240.0 < power < 330.0
 
 
 def test_heavier_aircraft_needs_more_power():

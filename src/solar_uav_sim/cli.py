@@ -9,6 +9,7 @@ from .atmosphere import air_density_kg_m3
 from .battery import BatterySpec
 from .mission import run_mission, segment_from_dict
 from .panel import PanelSpec
+from .profile import profile_from_dicts
 from .propulsion import (
     MultirotorSpec,
     best_cruise_speed_m_s,
@@ -25,22 +26,44 @@ def _default_specs():
     return panel, battery, propulsion
 
 
+def _load_profile(path: str):
+    """Read a DayProfile from a JSON file, or return None if no path."""
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        raise SystemExit(f"error: profile file not found: {path}")
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"error: profile file is not valid JSON: {exc}")
+    try:
+        return profile_from_dicts(data)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SystemExit(f"error: invalid profile: {exc}")
+
+
 def cmd_simulate(args: argparse.Namespace) -> int:
     config = MissionConfig(latitude_deg=args.lat, day_of_year=args.day, altitude_m=args.altitude)
     panel, battery, propulsion = _default_specs()
-    result = run_day(config, panel, battery, propulsion)
+    profile = _load_profile(args.profile)
+    result = run_day(config, panel, battery, propulsion, profile=profile)
     print(f"Energy in:   {result.energy_in_wh:8.1f} Wh")
     print(f"Energy out:  {result.energy_out_wh:8.1f} Wh")
     print(f"Net:         {result.net_energy_wh:8.1f} Wh")
     print(f"Min SoC:     {result.min_soc_wh:8.1f} Wh")
     print(f"End SoC:     {result.end_soc_wh:8.1f} Wh")
+    if profile is not None:
+        print(f"Flight time: {result.flight_time_s:8.0f} s")
+        print(f"Distance:    {result.flight_distance_m:8.0f} m")
     return 0
 
 
 def cmd_parity(args: argparse.Namespace) -> int:
     config = MissionConfig(latitude_deg=args.lat, day_of_year=args.day, altitude_m=args.altitude)
     panel, battery, propulsion = _default_specs()
-    factor = parity_scale_factor(config, panel, battery, propulsion)
+    profile = _load_profile(args.profile)
+    factor = parity_scale_factor(config, panel, battery, propulsion, profile=profile)
     print(f"Parity irradiance factor: {factor:.3f}")
     if factor <= 1.0:
         print("The configuration sustains itself on a clear-sky day at this site.")
@@ -102,7 +125,8 @@ def cmd_plot(args: argparse.Namespace) -> int:
 
     config = MissionConfig(latitude_deg=args.lat, day_of_year=args.day, altitude_m=args.altitude)
     panel, battery, propulsion = _default_specs()
-    result = run_day(config, panel, battery, propulsion)
+    profile = _load_profile(args.profile)
+    result = run_day(config, panel, battery, propulsion, profile=profile)
 
     fig, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
     axes[0].plot(result.hours, result.solar_power, label="Solar power (W)")
@@ -126,8 +150,10 @@ def main() -> None:
     parser.add_argument("--day", type=int, default=172, help="Day of year 1-365 (default: 172)")
     parser.add_argument("--altitude", type=float, default=100.0, help="Flight altitude in meters")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("simulate", help="Run a 24-hour energy-balance simulation")
-    sub.add_parser("parity", help="Find the irradiance factor needed to break even")
+    simulate = sub.add_parser("simulate", help="Run a 24-hour energy-balance simulation")
+    simulate.add_argument("--profile", default=None, help="JSON file with timed segments for the day")
+    parity = sub.add_parser("parity", help="Find the irradiance factor needed to break even")
+    parity.add_argument("--profile", default=None, help="JSON file with timed segments for the day")
     cruise = sub.add_parser("cruise", help="Forward-flight power at one speed")
     cruise.add_argument("--speed", type=float, default=12.0, help="Forward speed in m/s")
     curve = sub.add_parser("power-curve", help="Power vs forward speed table")
@@ -137,6 +163,7 @@ def main() -> None:
     mission.add_argument("--segments", required=True, help="JSON file with segment list")
     plot = sub.add_parser("plot", help="Save power and battery plots to a PNG file")
     plot.add_argument("--output", default="day.png")
+    plot.add_argument("--profile", default=None, help="JSON file with timed segments for the day")
 
     args = parser.parse_args()
     if args.command == "simulate":

@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-16
+
+### Added
+
+- Mission profiles in the day loop (`profile.py`): timed segments
+  placed on the 24-hour clock (`DayProfile`, `TimedSegment`,
+  `profile_from_dicts`), so a day can be flown as sorties instead of
+  an all-day hover. Outside the timed windows the aircraft is on the
+  ground with its systems off (load zero), so midday sun charges the
+  battery between sorties. `DayResult` gains the per-step load kind
+  plus flight time and flight distance totals.
+- `run_day` and `parity_scale_factor` take an optional `profile`, so
+  parity can be computed for a real flying day instead of all-day
+  hover. The same 3 kg quad over Dhaka on the solstice needs a parity
+  factor of 7.582 to hover all day but 0.334 for a three-sortie day
+  (morning survey cruise, midday hover inspection, afternoon transit):
+  the profile day ends energy-positive at +1043.7 Wh with 463.8 Wh in
+  the battery, after flying 6000 s over 70.2 km.
+- CLI `--profile` on `simulate`, `parity`, and `plot`, taking a JSON
+  list of timed segments; `simulate` prints flight time and distance
+  when a profile is given. Missing, malformed, or invalid profile
+  files exit non-zero with a plain error message.
+- Profile validation at construction: start hours inside [0, 24),
+  segments ending no later than hour 24, no overlaps, unknown kinds
+  rejected, unsorted input sorted. A bad profile raises ValueError
+  instead of silently dropping or shifting a sortie.
+- New example `examples/day_profile.json` and
+  `examples/day_profile_example.py` comparing the hover day with the
+  profile day. Test suite 28 -> 45 (`tests/test_day_profile.py`).
+
+### Fixed
+
+- The day loop now iterates by step count instead of accumulating
+  time: the old `while t < 24.0` loop ran 289 five-minute steps (the
+  day simulated 24h05m) and a sortie starting exactly on the hour
+  missed its first step. The day is now exactly 288 steps, so the
+  all-day hover numbers move slightly: energy out 11924.7 Wh ->
+  11883.4 Wh, net -10357.4 Wh -> -10316.1 Wh, parity factor 7.609 ->
+  7.582. Energy in is unchanged (the extra step was at night).
+- Corrected the README Python API example, which called a
+  `simulate_day` function and `MissionConfig` keyword arguments that
+  do not exist; it now shows the real `run_day` API.
+
 ## [1.1.0] - 2026-11-02
 
 ### Added

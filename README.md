@@ -42,12 +42,18 @@ against first principles.
 - **Day simulation**: a configurable mission (latitude, day of year,
   altitude, panel, battery, aircraft) integrated over 24 hours, returning
   energy in, energy out, net balance, and the state-of-charge trace.
+  With a **day profile** the load follows timed sorties instead of
+  hovering all day: the aircraft sits on the ground between sorties,
+  charging from the sun, so the same day can end energy-positive.
 - **Parity solver**: bisection on an irradiance scale factor that finds the
   exact point where daily harvest equals daily consumption; the search
-  bracket grows automatically if break-even lies beyond it.
+  bracket grows automatically if break-even lies beyond it. Parity can
+  be computed for a day profile too, so a sortie plan can be checked
+  against the sun it actually gets.
 - **CLI**: `simulate`, `parity`, `plot`, `cruise`, `power-curve`, and
   `mission` subcommands, plus a Python API for embedding the models in
-  your own design studies.
+  your own design studies. `simulate`, `parity`, and `plot` all take
+  `--profile` for a JSON file of timed segments.
 
 ## Installation
 
@@ -79,8 +85,8 @@ solar-uav-sim simulate --lat 23.8 --day 172 --panel-area 1.0 --battery-wh 500 --
 
 ```text
 Energy in:     1567.3 Wh
-Energy out:   11924.7 Wh
-Net:         -10357.4 Wh
+Energy out:   11883.4 Wh
+Net:         -10316.1 Wh
 Min SoC:        100.0 Wh
 End SoC:        100.0 Wh
 ```
@@ -105,26 +111,56 @@ solar-uav-sim power-curve --max-speed 30 --step 5
 solar-uav-sim mission --segments examples/mission.json
 ```
 
+Fly a real day instead of hovering all day: a morning survey cruise,
+a midday hover inspection, and an afternoon transit, with the aircraft
+on the ground charging in between (see `examples/day_profile.json`):
+
+```bash
+solar-uav-sim simulate --profile examples/day_profile.json
+solar-uav-sim parity --profile examples/day_profile.json
+```
+
+```text
+Energy in:     1567.3 Wh
+Energy out:     523.6 Wh
+Net:           1043.7 Wh
+Min SoC:        234.3 Wh
+End SoC:        463.8 Wh
+Flight time:     6000 s
+Distance:       70200 m
+Parity irradiance factor: 0.334
+The configuration sustains itself on a clear-sky day at this site.
+```
+
+The same aircraft that needs 7.6 times the sun to hover all day breaks
+even at a third of the sun when it flies three sorties and charges
+between them. That is the whole point of a day profile: parity against
+an all-day hover load overstates what a real flying day needs.
+
 ### Python API
 
 ```python
 from solar_uav_sim import (
-    BatterySpec, MissionConfig, MultirotorSpec, PanelSpec,
-    parity_scale_factor, simulate_day,
+    BatterySpec, DayProfile, MissionConfig, MultirotorSpec, PanelSpec,
+    parity_scale_factor, profile_from_dicts, run_day,
 )
 
-config = MissionConfig(
-    latitude_deg=23.81,
-    day_of_year=172,
-    altitude_m=100.0,
-    panel=PanelSpec(area_m2=1.0, efficiency=0.22),
-    battery=BatterySpec(capacity_wh=500.0),
-    aircraft=MultirotorSpec(mass_kg=3.0, rotor_diameter_m=0.33, num_rotors=4),
-)
+config = MissionConfig(latitude_deg=23.8, day_of_year=172, altitude_m=100.0)
+panel = PanelSpec(area_m2=1.0, efficiency=0.22)
+battery = BatterySpec(capacity_wh=500.0)
+aircraft = MultirotorSpec(mass_kg=3.0, num_rotors=4, prop_diameter_m=0.33)
 
-result = simulate_day(config)
-print(result.energy_in_wh, result.energy_out_wh, result.net_wh)
-print("Parity factor:", parity_scale_factor(config))
+result = run_day(config, panel, battery, aircraft)
+print(result.energy_in_wh, result.energy_out_wh, result.net_energy_wh)
+print("Parity factor:", parity_scale_factor(config, panel, battery, aircraft))
+
+profile = profile_from_dicts([
+    {"start_hour": 6.0, "kind": "cruise", "duration_s": 3600, "speed_m_s": 12.0},
+    {"start_hour": 12.0, "kind": "hover", "duration_s": 600},
+    {"start_hour": 16.0, "kind": "cruise", "duration_s": 1800, "speed_m_s": 15.0},
+])
+profile_day = run_day(config, panel, battery, aircraft, profile=profile)
+print(profile_day.net_energy_wh, profile_day.flight_distance_m)
 ```
 
 ## How it works
@@ -137,6 +173,7 @@ print("Parity factor:", parity_scale_factor(config))
 | `battery.py` | Charge/discharge bookkeeping with efficiency and DoD limits |
 | `propulsion.py` | Hover, climb, and forward-flight power from momentum theory |
 | `mission.py` | Segment-based mission energy (hover, cruise, climb) |
+| `profile.py` | Timed mission profiles: sorties placed on the day clock |
 | `simulation.py` | The 24-hour integration loop and the parity solver |
 | `cli.py` | Command-line interface |
 
@@ -157,7 +194,7 @@ Key relations:
 
 ## Validation and sanity checks
 
-The test suite (28 tests) checks the physics, not just the plumbing:
+The test suite (45 tests) checks the physics, not just the plumbing:
 
 - Solar altitude peaks at local noon; irradiance is zero at night.
 - On the solstice, daylight exceeds 13 hours at latitude 23.8.
@@ -170,13 +207,16 @@ The test suite (28 tests) checks the physics, not just the plumbing:
   velocity falls with speed toward the v_h^2 / V asymptote; the power
   curve is U-shaped (cruise cheaper than hover, then drag-dominated);
   a mixed hover/cruise/climb mission prices to its segment sum.
+- A day profile draws less energy than all-day hover, charges the
+  battery while parked at midday, and ends the day with more charge;
+  an empty profile draws nothing; overlapping or out-of-day segments
+  are rejected; parity for a profile day is lower than for all-day
+  hover and the profile day really breaks even at its own factor.
 
 ## Honest limitations
 
 - Clear-sky irradiance only: no clouds, haze, or panel soiling yet.
-- The 24-hour day simulation still assumes a hover load; mixed
-  hover/cruise/climb flights are priced with the mission tool, not
-  inside the day loop. No wind model yet.
+  No wind model yet.
 - Forward-flight drag area, tip speed, solidity, and profile drag
   defaults are typical small-quad estimates, not calibrated to a
   specific airframe.
@@ -189,9 +229,6 @@ These are deliberate. Each one is a clean extension point, listed below.
 
 Ideas are welcome. Roughly in order of expected value:
 
-- **Mission profiles in the day loop**: timed segments inside the 24-hour
-  simulation instead of a single all-day hover (segment pricing exists
-  as a standalone tool since v1.1.0).
 - **Weather derating**: cloud cover factors and measured irradiance data
   (for example from NASA POWER) in place of the clear-sky model.
 - **Tilted and tracking panels**: panel normal vector vs sun vector.

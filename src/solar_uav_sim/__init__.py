@@ -1,5 +1,6 @@
 """solar-uav-sim: solar-powered UAV endurance simulation."""
 
+from .profile import DayProfile, TimedSegment, profile_from_dicts
 from .simulation import MissionConfig, DayResult, parity_scale_factor, run_day
 from .panel import PanelSpec, panel_power_w
 from .battery import BatterySpec, Battery
@@ -23,11 +24,14 @@ from .propulsion import (
 from .sun import clear_sky_irradiance_w_m2, solar_altitude_deg, daylight_hours
 from .atmosphere import air_density_kg_m3
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     "MissionConfig",
     "DayResult",
+    "DayProfile",
+    "TimedSegment",
+    "profile_from_dicts",
     "parity_scale_factor",
     "run_day",
     "PanelSpec",
